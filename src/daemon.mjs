@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { getUpdates, sendMessage, DEFAULT_BASE_URL } from './ilink.mjs';
+import { getUpdates, sendMessage, sendImageMessage, DEFAULT_BASE_URL } from './ilink.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -373,6 +373,7 @@ async function handleMessage(msg) {
     const helpMsg = `🤖 反重力 Agent 手机终端指南：
 ━━━━━━━━━━━━━━━
 • 直接输入任务：让 Agent 查代码、跑测试、写脚本
+• 截图 或 /shot : 立即捕获电脑当前屏幕并推送原图
 • /status : 查看电脑状态（若任务正在执行则查看实时进度）
 • /abort : 强制中止当前正在运行的任务
 • /cd <路径> : 切换当前 Agent 所在的工程目录
@@ -381,6 +382,39 @@ async function handleMessage(msg) {
 ━━━━━━━━━━━━━━━
 当前目录: ${currentCwd}`;
     await sendMessage(botToken, fromUser, contextToken, helpMsg, baseUrl);
+    return;
+  }
+
+  if (text === '/screenshot' || text === '/shot' || text === '截图' || text === '截屏') {
+    const shotFile = `/tmp/wechat_screenshot_${Date.now()}.png`;
+    console.log(`[主动截图指令] 正在截取屏幕...`);
+    await sendMessage(botToken, fromUser, contextToken, '📸 正在捕获 Linux 本机屏幕并上传微信...', baseUrl);
+
+    const sendShot = async () => {
+      try {
+        await sendImageMessage(botToken, fromUser, contextToken, shotFile, baseUrl);
+        console.log(`[截图推送成功] ${shotFile}`);
+      } catch (err) {
+        console.error(`[截图推送失败]`, err);
+        await sendMessage(botToken, fromUser, contextToken, `❌ 图片上传微信失败: ${err.message}`, baseUrl);
+      } finally {
+        fs.unlink(shotFile, () => {});
+      }
+    };
+
+    execFile('spectacle', ['-b', '-n', '-o', shotFile], (err) => {
+      if (!err && fs.existsSync(shotFile)) {
+        sendShot();
+      } else {
+        execFile('import', ['-window', 'root', shotFile], (err2) => {
+          if (!err2 && fs.existsSync(shotFile)) {
+            sendShot();
+          } else {
+            sendMessage(botToken, fromUser, contextToken, `❌ 截图失败: ${err?.message || err2?.message}`, baseUrl);
+          }
+        });
+      }
+    });
     return;
   }
 
@@ -443,8 +477,15 @@ async function handleMessage(msg) {
       }
     };
 
+    // 若用户需求涉及截图，增加提示引导 Agent 输出图片文件路径
+    let agentPrompt = text;
+    const isScreenshotRequest = /(截图|截屏|效果图|看下效果|截个图|图片|screenshot|screen)/i.test(text);
+    if (isScreenshotRequest) {
+      agentPrompt += '\n\n[系统提示: 如果需要为用户截取当前屏幕或效果图，可执行 `spectacle -b -n -o /tmp/wechat_shot.png`（或使用相关工具生成图片），并在最终回复中写出该图片的绝对路径。桥接守护服务检测到图片路径后会自动上传微信 CDN 并推送到用户的手机微信聊天框。]';
+    }
+
     // 调用反重力 Agent 执行
-    const result = await runAgy(text, currentCwd, onProgress);
+    const result = await runAgy(agentPrompt, currentCwd, onProgress);
 
     const seconds = (result.durationMs / 1000).toFixed(1);
     let replyHeader = '';
@@ -457,6 +498,23 @@ async function handleMessage(msg) {
     }
 
     await sendMessage(botToken, fromUser, contextToken, `${replyHeader}${result.output}`, baseUrl);
+
+    // 自动检测任务输出中的图片文件并推送原图到微信
+    const imgRegex = /(?:^|\s|["'`(])(\/(?:[^\s"'`)\r\n]+)\.(?:png|jpe?g|webp|gif))(?:\s|["'`)]|$)/gi;
+    const matches = Array.from(result.output.matchAll(imgRegex));
+    const sentImages = new Set();
+    for (const m of matches) {
+      const imgPath = m[1];
+      if (imgPath && fs.existsSync(imgPath) && !sentImages.has(imgPath)) {
+        sentImages.add(imgPath);
+        try {
+          console.log(`[自动推送图片] 检测到任务产出图片: ${imgPath}`);
+          await sendImageMessage(botToken, fromUser, contextToken, imgPath, baseUrl);
+        } catch (imgErr) {
+          console.warn(`[图片推送失败] ${imgPath}: ${imgErr.message}`);
+        }
+      }
+    }
   } catch (err) {
     console.error('[执行异常]:', err);
     await sendMessage(botToken, fromUser, contextToken, `❌ 执行出错: ${err.message}`, baseUrl);
