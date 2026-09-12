@@ -1,0 +1,22 @@
+{
+  "name": "wechat-agy-bridge",
+  "version": "1.0.0",
+  "description": "Bridge WeChat ClawBot to local Linux Antigravity Agent (agy)",
+  "main": "src/daemon.mjs",
+  "type": "module",
+  "scripts": {
+    "login": "node src/login.mjs",
+    "start": "node src/daemon.mjs"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  },
+  "keywords": [
+    "wechat",
+    "clawbot",
+    "antigravity",
+    "agent"
+  ],
+  "author": "",
+  "license": "MIT"
+}

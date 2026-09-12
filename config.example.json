@@ -1,0 +1,7 @@
+{
+  "botToken": "YOUR_BOT_TOKEN_HERE",
+  "baseUrl": "https://ilinkai.weixin.qq.com",
+  "authorizedAt": "2026-01-01T00:00:00.000Z",
+  "defaultCwd": "/path/to/your/default/workspace",
+  "userId": "YOUR_WECHAT_USER_ID"
+}
